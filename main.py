@@ -1,55 +1,51 @@
-from fastapi import FastAPI, HTTPException
-from subprocess import check_output, CalledProcessError, STDOUT
-import logging
-import sys
+#!/usr/bin/env python
+from fastapi import FastAPI
+from langchain.llms import OpenAI, Anthropic
+from langchain.runnables import Runnable
+from langchain.prompts import TextPrompt
+from langserve import add_routes
 
-app = FastAPI()
+app = FastAPI(
+    title="Infrastructure Management Server",
+    version="1.0",
+    description="API server for managing infrastructure deployment and configuration using LangChain and LangServe.",
+)
 
-class CommandRunner:
-    def __init__(self, logger=None):
-        self.logger = logger or logging.getLogger(__name__)
+class DeployInfrastructure(Runnable):
+    def __init__(self, llm):
+        self.llm = llm
 
-    def run_command(self, command, **kwargs):
-        """
-        Execute a shell command with additional kwargs for subprocess options.
-        """
-        try:
-            output = check_output(command, shell=True, stderr=STDOUT, **kwargs)
-            self.logger.info(output.decode())
-            return output.decode()
-        except CalledProcessError as e:
-            self.logger.error(f"Command failed: {command}\nError: {e.output.decode()}")
-            raise HTTPException(status_code=500, detail=e.output.decode())
+    async def run(self, context=None):
+        deploy_prompt = TextPrompt("Deploy infrastructure with Terraform.")
+        result = await self.llm(deploy_prompt)
+        return {"detail": result.text}
 
-class InfrastructureManager:
-    def __init__(self, runner):
-        self.runner = runner
+class ConfigureInfrastructure(Runnable):
+    def __init__(self, llm):
+        self.llm = llm
 
-    def deploy_infrastructure(self):
-        init_output = self.runner.run_command("terraform init")
-        apply_output = self.runner.run_command("terraform apply -auto-approve")
-        return init_output + "\n" + apply_output
+    async def run(self, context=None):
+        config_prompt = TextPrompt("Configure infrastructure with Ansible.")
+        result = await self.llm(config_prompt)
+        return {"detail": result.text}
 
-    def configure_infrastructure(self):
-        config_output = self.runner.run_command("ansible-playbook -i ansible/inventory/dynamic.py ansible/playbooks/site.yml")
-        return config_output
+# Initialize language models
+openai_llm = OpenAI()
+anthropic_llm = Anthropic()
 
-@app.post("/deploy/")
-def deploy_infrastructure():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    runner = CommandRunner(logging)
-    manager = InfrastructureManager(runner)
-    logging.info("Starting Home Lab as a Service deployment...")
-    deploy_output = manager.deploy_infrastructure()
-    logging.info("Deployment completed successfully.")
-    return {"detail": deploy_output}
+# Add routes for deploying and configuring infrastructure
+add_routes(
+    app,
+    DeployInfrastructure(openai_llm),
+    path="/deploy",
+)
 
-@app.post("/configure/")
-def configure_infrastructure():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    runner = CommandRunner(logging)
-    manager = InfrastructureManager(runner)
-    logging.info("Starting configuration...")
-    config_output = manager.configure_infrastructure()
-    logging.info("Configuration completed successfully.")
-    return {"detail": config_output}
+add_routes(
+    app,
+    ConfigureInfrastructure(anthropic_llm),
+    path="/configure",
+)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
