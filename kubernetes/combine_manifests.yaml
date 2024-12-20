@@ -1,0 +1,526 @@
+# Weaviate
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate-service
+  namespace: weaviate-ns
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: weaviate
+  template:
+    metadata:
+      labels:
+        app: weaviate
+    spec:
+      containers:
+      - name: weaviate
+        image: weaviate:latest
+        ports:
+        - containerPort: 80
+        envFrom:
+        - configMapRef:
+            name: weaviate-config
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-service
+  namespace: weaviate-ns
+spec:
+  type: ClusterIP
+  selector:
+    app: weaviate
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80 
+---
+# MinIO
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio-service
+  namespace: minio-ns
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        ports:
+        - containerPort: 9000
+        envFrom:
+        - configMapRef:
+            name: minio-config
+        resources:
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: minio-ns
+spec:
+  type: LoadBalancer
+  selector:
+    app: minio
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000
+      
+---
+# MinIO Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-minio-bucket
+  namespace: minio-ns
+spec:
+  template:
+    spec:
+      containers:
+      - name: minio-mc
+        image: minio/mc
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while ! nc -z minio 9000; do
+            echo 'Waiting for Minio server...'
+            sleep 1
+          done
+          mc alias set minio http://minio:9000 $(MINIO_ACCESS_KEY) $(MINIO_SECRET_KEY)
+          mc mb minio/weaviate-data
+      restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: langchain-service
+  namespace: langchain-ns
+spec:
+  selector:
+    app: cda.langchain-system
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: LoadBalancer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langchain-deployment
+  namespace: langchain-ns
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cda.langchain-system
+  template:
+    metadata:
+      labels:
+        app: cda.langchain-system
+    spec:
+      containers:
+      - name: langchain
+        image: your-docker-image:latest
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: langchain-config
+      imagePullSecrets:
+      - name: regcred
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-config
+  namespace: weaviate-ns
+data:
+  # Weaviate configuration
+  WEAVIATE_VERSION: "latest"
+  WEAVIATE_API_KEY: "readonly-key"
+  WEAVIATE_USER: "readonly@example.com"
+  WEAVIATE_OIDC_ISSUER: "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
+  WEAVIATE_CLIENT_ID: "wcs"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minio-config
+  namespace: minio-ns
+data:
+  # MinIO configuration
+  MINIO_ENDPOINT: "http://minio-service:9000"
+  MINIO_ACCESS_KEY: "minioaccesskey"
+  MINIO_SECRET_KEY: "miniosecretkey"
+---
+# Langchain ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: langchain-config
+  namespace: langchain-ns
+data:
+  # Weaviate configuration
+  WEAVIATE_ENDPOINT: "http://weaviate-service:8080"
+  # MinIO configuration
+  MINIO_ENDPOINT: "http://minio-service:9000"
+  MINIO_ACCESS_KEY: "minioaccesskey"
+  MINIO_SECRET_KEY: "miniosecretkey"
+  # LangServe configuration, adjust as needed
+  LANGSERVE_URL: "http://langserve-service:port"
+  # Additional environment variables
+  DATABASE_URL: "jdbc:mysql://your-database-url:3306/langchain"
+  ANOTHER_ENV_VAR: "value"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins-service
+  namespace: jenkins-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jenkins
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:lts
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins-service
+  namespace: jenkins-ns
+spec:
+  type: NodePort
+  selector:
+    app: jenkins
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Supabase/Postgres
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supabase-postgres
+  namespace: supabase-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: supabase-postgres
+  template:
+    metadata:
+      labels:
+        app: supabase-postgres
+    spec:
+      containers:
+      - name: supabase-postgres
+        image: supabase/postgres:latest
+        ports:
+        - containerPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supabase-postgres-service
+  namespace: supabase-ns
+spec:
+  type: ClusterIP
+  selector:
+    app: supabase-postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+
+---
+# Grafana
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: monitoring-ns
+spec:
+  type: NodePort
+  selector:
+    app: grafana
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+
+---
+# Prometheus
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-service
+  namespace: monitoring-ns
+spec:
+  type: NodePort
+  selector:
+    app: prometheus
+  ports:
+    - protocol: TCP
+      port: 9090
+      targetPort: 9090
+
+---
+# OpenFaaS
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openfaas
+  namespace: openfaas-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openfaas
+  template:
+    metadata:
+      labels:
+        app: openfaas
+    spec:
+      containers:
+      - name: openfaas
+        image: openfaas/faas-netes:latest
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openfaas-service
+  namespace: openfaas-ns
+spec:
+  type: NodePort
+  selector:
+    app: openfaas
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+# Ingress Starts
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: weaviate-ingress
+  namespace: weaviate-ns
+spec:
+  rules:
+  - host: weaviate.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: weaviate-service
+            port:
+              number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: minio-ns
+spec:
+  rules:
+  - host: minio.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-service
+            port:
+              number: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: langchain-ingress
+  namespace: langchain-ns
+spec:
+  rules:
+  - host: langchain.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: langchain-service
+            port:
+              number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins-ingress
+  namespace: jenkins-ns
+spec:
+  rules:
+  - host: jenkins.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jenkins-service
+            port:
+              number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: supabase-postgres-ingress
+  namespace: supabase-ns
+spec:
+  rules:
+  - host: supabase-postgres.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: supabase-postgres-service
+            port:
+              number: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: monitoring
+spec:
+  rules:
+  - host: grafana.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus-ingress
+  namespace: monitoring
+spec:
+  rules:
+  - host: prometheus.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openfaas-ingress
+  namespace: openfaas-ns
+spec:
+  rules:
+  - host: openfaas.cdaprod.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: openfaas-service
+            port:
+              number: 8080

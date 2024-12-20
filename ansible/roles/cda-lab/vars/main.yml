@@ -1,0 +1,5 @@
+---
+# vars file for cdaLab
+packages:
+  - nginx
+  - git

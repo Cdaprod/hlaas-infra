@@ -1,0 +1,12 @@
+- hosts: all
+  become: yes
+  roles:
+    - role: xanmanning.k3s
+  vars:
+    k3s_release_version: "v1.19.3+k3s1" # Specify the K3s version you want to install
+    k3s_state: installed
+    k3s_build_cluster: true
+    k3s_server:
+      write-kubeconfig-mode: "644"
+    k3s_agent: {}
+    k3s_control_node: "{{ 'true' if inventory_hostname == 'rpi5-1' else 'false' }}"

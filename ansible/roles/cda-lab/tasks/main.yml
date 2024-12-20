@@ -1,0 +1,14 @@
+---
+# tasks file for cdaLab
+- name: Ensure system is up to date
+  ansible.builtin.yum:
+    name: '*'
+    state: latest
+  when: ansible_os_family == "RedHat"
+
+- name: Install necessary packages
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ packages }}"
+  when: ansible_os_family == "Debian"

@@ -1,0 +1,46 @@
+version: '3'
+
+services:
+  awx_web:
+    image: ansible/awx:latest
+    ports:
+      - "8052:8052"
+    depends_on:
+      - awx_postgres
+      - awx_redis
+    environment:
+      DATABASE_USER: awx
+      DATABASE_PASSWORD: awxpass
+      DATABASE_NAME: awx
+      DATABASE_PORT: 5432
+      DATABASE_HOST: awx_postgres
+      REDIS_HOST: awx_redis
+      REDIS_PORT: 6379
+
+  awx_task:
+    image: ansible/awx:latest
+    depends_on:
+      - awx_postgres
+      - awx_redis
+    environment:
+      DATABASE_USER: awx
+      DATABASE_PASSWORD: awxpass
+      DATABASE_NAME: awx
+      DATABASE_PORT: 5432
+      DATABASE_HOST: awx_postgres
+      REDIS_HOST: awx_redis
+      REDIS_PORT: 6379
+
+  awx_postgres:
+    image: postgres:12
+    environment:
+      POSTGRES_USER: awx
+      POSTGRES_PASSWORD: awxpass
+      POSTGRES_DB: awx
+
+  awx_redis:
+    image: redis
+
+volumes:
+  postgres_data:
+    driver: local

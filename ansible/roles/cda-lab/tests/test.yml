@@ -1,0 +1,16 @@
+---
+- hosts: localhost
+  roles:
+    - cdaLab
+
+  tasks:
+    - name: Check if nginx is installed
+      command: nginx -v
+      register: nginx_version
+
+    - name: Verify nginx installation
+      assert:
+        that:
+          - '"nginx version" in nginx_version.stdout'
+        fail_msg: "Nginx is not installed"
+        success_msg: "Nginx is installed"
